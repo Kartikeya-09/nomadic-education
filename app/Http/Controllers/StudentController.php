@@ -8,6 +8,7 @@ use App\Models\Lesson;
 use App\Models\Content;
 use App\Models\QuizQuestion;
 use Illuminate\Support\Facades\Auth;
+use MongoDB\BSON\ObjectId;
 
 class StudentController extends Controller
 {
@@ -17,7 +18,7 @@ class StudentController extends Controller
 
         $classesQuery = SchoolClass::query();
         if (! empty($user->class_id)) {
-            $classesQuery->where('_id', $user->class_id);
+            $classesQuery->whereIn('_id', $this->expandMongoIds([$user->class_id]));
         }
 
         $classes = $classesQuery->get();
@@ -30,15 +31,16 @@ class StudentController extends Controller
         $lessonCounts = collect();
 
         if ($classes->isNotEmpty()) {
-            $classIds = $classes->pluck('_id')->map(fn ($id) => (string) $id)->all();
-            $lessonIds = Lesson::whereIn('class_id', $classIds)
-                ->pluck('_id')
+            $classIds = $classes->pluck('_id')->all();
+            $classIdFilters = $this->expandMongoIds($classIds);
+            $lessonIds = Lesson::whereIn('class_id', $classIdFilters)
+                ->pluck('id')
                 ->map(fn ($val) => (string) $val)
                 ->all();
             $totalLessons = count($lessonIds);
             $validCompleted = array_values(array_intersect($completedLessons, $lessonIds));
             $completedCount = count($validCompleted);
-            $lessonCounts = Lesson::whereIn('class_id', $classIds)
+            $lessonCounts = Lesson::whereIn('class_id', $classIdFilters)
                 ->get(['class_id'])
                 ->groupBy('class_id')
                 ->map(fn ($items) => $items->count());
@@ -101,7 +103,7 @@ class StudentController extends Controller
 
         $classesQuery = SchoolClass::query();
         if (! empty($user->class_id)) {
-            $classesQuery->where('_id', $user->class_id);
+            $classesQuery->whereIn('_id', $this->expandMongoIds([$user->class_id]));
         }
 
         $classes = $classesQuery->get();
@@ -117,15 +119,16 @@ class StudentController extends Controller
 
         $classesQuery = SchoolClass::query();
         if (! empty($user->class_id)) {
-            $classesQuery->where('_id', $user->class_id);
+            $classesQuery->whereIn('_id', $this->expandMongoIds([$user->class_id]));
         }
         $classes = $classesQuery->get();
 
-        $classIds = $classes->pluck('_id')->map(fn ($id) => (string) $id)->all();
-        $lessonIds = empty($classIds)
+        $classIds = $classes->pluck('_id')->all();
+        $classIdFilters = $this->expandMongoIds($classIds);
+        $lessonIds = empty($classIdFilters)
             ? []
-            : Lesson::whereIn('class_id', $classIds)
-                ->pluck('_id')
+            : Lesson::whereIn('class_id', $classIdFilters)
+                ->pluck('id')
                 ->map(fn ($val) => (string) $val)
                 ->all();
         $totalLessons = count($lessonIds);
@@ -151,7 +154,7 @@ class StudentController extends Controller
 
         $classQuery = SchoolClass::with('lessons');
         if (! empty($user->class_id)) {
-            $classQuery->where('_id', $user->class_id);
+            $classQuery->whereIn('_id', $this->expandMongoIds([$user->class_id]));
         }
 
         $class = $classQuery->findOrFail($id);
@@ -193,7 +196,7 @@ class StudentController extends Controller
         $lesson = Lesson::find($id);
         if ($lesson) {
             $classLessons = Lesson::where('class_id', (string) $lesson->class_id)
-                ->pluck('_id')
+                ->pluck('id')
                 ->map(fn ($val) => (string) $val)
                 ->all();
             $allCompleted = ! empty($classLessons)
@@ -292,5 +295,37 @@ class StudentController extends Controller
 
         return redirect()->route('student.class', $classId)
             ->with('status', "Quiz completed. Score: {$score}/{$total}.");
+    }
+
+    private function expandMongoIds(array $ids): array
+    {
+        $expanded = [];
+        foreach ($ids as $id) {
+            if ($id === null) {
+                continue;
+            }
+
+            if ($id instanceof ObjectId) {
+                $expanded[] = $id;
+                $expanded[] = (string) $id;
+                continue;
+            }
+
+            $idString = trim((string) $id);
+            if ($idString === '') {
+                continue;
+            }
+
+            $expanded[] = $idString;
+            if (preg_match('/^[a-f0-9]{24}$/i', $idString)) {
+                try {
+                    $expanded[] = new ObjectId($idString);
+                } catch (\Throwable $e) {
+                    // ignore invalid ObjectId
+                }
+            }
+        }
+
+        return $expanded;
     }
 }
