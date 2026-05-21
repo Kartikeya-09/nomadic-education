@@ -13,7 +13,6 @@ Route::get("/", function () {
         if ($user->hasRole("admin")) return redirect()->route("admin.dashboard");
         if ($user->hasRole("teacher")) return redirect()->route("teacher.dashboard");
         if ($user->hasRole("student")) return redirect()->route("student.dashboard");
-        if ($user->hasRole("parent")) return redirect()->route("parent.dashboard");
     }
     return view("welcome");
 });
